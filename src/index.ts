@@ -653,10 +653,13 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
         keyPattern,
         priorities,
       } = args;
-      const targetSessionId = specificSessionId || currentSessionId || ensureSession();
+      // Current session for privacy checking (can see own private items)
+      const currentSession = currentSessionId || ensureSession();
+      // If user specified a session, use it for filtering; otherwise use current session
+      const filterSession = specificSessionId || currentSession;
 
       // Dynamically calculate safe default limit based on actual data
-      const defaultLimit = calculateDynamicDefaultLimit(targetSessionId, includeMetadata, db);
+      const defaultLimit = calculateDynamicDefaultLimit(filterSession, includeMetadata, db);
       const paginationValidation = validatePaginationParams({
         limit: rawLimit !== undefined ? rawLimit : defaultLimit,
         offset: rawOffset,
@@ -673,7 +676,8 @@ server.setRequestHandler(CallToolRequestSchema, async request => {
       // Removed the conditional check since we always want to use this path
       {
         const result = repositories.contexts.queryEnhanced({
-          sessionId: targetSessionId,
+          sessionId: currentSession, // Used for privacy check (is_private = 0 OR session_id = ?)
+          filterBySessionId: specificSessionId, // If specified, filter results to this session only
           key,
           category,
           channel,
