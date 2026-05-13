@@ -1458,6 +1458,7 @@ Checkpoint: ${autoSave ? `git-commit-${new Date().toISOString()}` : 'None'}`,
         priorities,
         includeMetadata,
         matchMode,
+        useFts5,
       } = args;
       const targetSessionId = specificSessionId || currentSessionId || ensureSession();
 
@@ -1478,6 +1479,7 @@ Checkpoint: ${autoSave ? `git-commit-${new Date().toISOString()}` : 'None'}`,
         priorities,
         includeMetadata,
         matchMode,
+        useFts5,
       });
 
       if (result.items.length === 0) {
@@ -2890,6 +2892,7 @@ Event ID: ${id.substring(0, 8)}`,
         searchIn = ['key', 'value'],
         includeMetadata = false,
         matchMode,
+        useFts5,
       } = args;
 
       // Enhanced pagination validation with proper error handling
@@ -2922,6 +2925,7 @@ Event ID: ${id.substring(0, 8)}`,
           keyPattern,
           includeMetadata,
           matchMode,
+          useFts5,
         });
 
         // PAGINATION VALIDATION: Ensure pagination is working as expected
@@ -4172,6 +4176,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               description:
                 'Multi-word query mode. AND (default) requires all terms to match; OR returns results matching any term.',
             },
+            useFts5: {
+              type: 'boolean',
+              default: false,
+              description:
+                'Use FTS5 full-text search with BM25 ranking. Best for large datasets and ASCII content. Terms < 3 characters automatically fall back to LIKE search.',
+            },
           },
           required: ['query'],
         },
@@ -4304,6 +4314,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               default: 'and',
               description:
                 'Multi-word query mode. AND (default) requires all terms to match; OR returns results matching any term.',
+            },
+            useFts5: {
+              type: 'boolean',
+              default: false,
+              description:
+                'Use FTS5 full-text search with BM25 ranking. Best for large datasets and ASCII content. Terms < 3 characters automatically fall back to LIKE search.',
             },
           },
           required: ['query'],

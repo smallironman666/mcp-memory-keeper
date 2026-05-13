@@ -220,6 +220,7 @@ export class ContextRepository extends BaseRepository {
     priorities?: string[];
     includeMetadata?: boolean;
     matchMode?: 'and' | 'or';
+    useFts5?: boolean;
   }): { items: ContextItem[]; totalCount: number } {
     const {
       query,
@@ -236,7 +237,62 @@ export class ContextRepository extends BaseRepository {
       keyPattern,
       priorities,
       matchMode = 'and',
+      useFts5 = false,
     } = options;
+
+    // FTS5 branch: trigram full-text search with BM25 ranking.
+    // Falls back to LIKE when any term is < 3 Unicode chars (trigram minimum).
+    if (useFts5 && query) {
+      const terms = query
+        .trim()
+        .split(/\s+/)
+        .filter(t => t.length > 0);
+      const hasShortTerm = terms.some(t => [...t].length < 3);
+      if (!hasShortTerm && terms.length > 0) {
+        const ftsConjunction = matchMode === 'or' ? ' OR ' : ' ';
+        const ftsQuery = terms.map(t => `"${t.replace(/"/g, '""')}"`).join(ftsConjunction);
+
+        let ftsSql = `
+          SELECT ci.* FROM context_items ci
+          JOIN context_items_fts fts ON ci.rowid = fts.rowid
+          WHERE context_items_fts MATCH ?
+            AND (ci.is_private = 0 OR ci.session_id = ?)
+        `;
+        const ftsParams: any[] = [ftsQuery, sessionId];
+
+        if (category) {
+          ftsSql += ' AND ci.category = ?';
+          ftsParams.push(category);
+        }
+        if (channel) {
+          ftsSql += ' AND ci.channel = ?';
+          ftsParams.push(channel);
+        }
+        if (channels && channels.length > 0) {
+          ftsSql += ` AND ci.channel IN (${channels.map(() => '?').join(',')})`;
+          ftsParams.push(...channels);
+        }
+        if (priorities && priorities.length > 0) {
+          ftsSql += ` AND ci.priority IN (${priorities.map(() => '?').join(',')})`;
+          ftsParams.push(...priorities);
+        }
+
+        const countResult = this.db
+          .prepare(ftsSql.replace('SELECT ci.*', 'SELECT COUNT(*) as count'))
+          .get(...ftsParams) as any;
+        const totalCount = countResult?.count || 0;
+
+        ftsSql += ' ORDER BY bm25(context_items_fts)'; // bm25 is negative; ASC = most relevant first
+        ftsSql = this.addPaginationToQuery(ftsSql, ftsParams, limit, offset);
+
+        try {
+          const items = this.db.prepare(ftsSql).all(...ftsParams) as ContextItem[];
+          return { items, totalCount };
+        } catch (_ftsErr) {
+          // FTS5 table not available; fall through to LIKE search
+        }
+      }
+    }
 
     // Build the base query with proper privacy filtering
     let sql = `
@@ -508,6 +564,7 @@ export class ContextRepository extends BaseRepository {
     keyPattern?: string;
     includeMetadata?: boolean;
     matchMode?: 'and' | 'or';
+    useFts5?: boolean;
   }): { items: ContextItem[]; totalCount: number; pagination: any } {
     const {
       query,
@@ -526,11 +583,85 @@ export class ContextRepository extends BaseRepository {
       createdBefore,
       keyPattern,
       matchMode = 'and',
+      useFts5 = false,
     } = options;
 
     // Validate pagination parameters
     const validLimit = Math.min(Math.max(1, limit), 100); // 1-100 range
     const validOffset = Math.max(0, offset);
+
+    // FTS5 branch for cross-session search
+    if (useFts5 && query) {
+      const terms = query
+        .trim()
+        .split(/\s+/)
+        .filter(t => t.length > 0);
+      const hasShortTerm = terms.some(t => [...t].length < 3);
+      if (!hasShortTerm && terms.length > 0) {
+        const ftsConjunction = matchMode === 'or' ? ' OR ' : ' ';
+        const ftsQuery = terms.map(t => `"${t.replace(/"/g, '""')}"`).join(ftsConjunction);
+
+        let ftsSql = `SELECT ci.* FROM context_items ci JOIN context_items_fts fts ON ci.rowid = fts.rowid WHERE context_items_fts MATCH ?`;
+        const ftsParams: any[] = [ftsQuery];
+
+        if (currentSessionId && includeShared) {
+          ftsSql += ' AND (ci.is_private = 0 OR ci.session_id = ?)';
+          ftsParams.push(currentSessionId);
+        } else {
+          ftsSql += ' AND ci.is_private = 0';
+        }
+        if (sessions && sessions.length > 0) {
+          ftsSql += ` AND ci.session_id IN (${sessions.map(() => '?').join(',')})`;
+          ftsParams.push(...sessions);
+        }
+        if (category) {
+          ftsSql += ' AND ci.category = ?';
+          ftsParams.push(category);
+        }
+        if (channel) {
+          ftsSql += ' AND ci.channel = ?';
+          ftsParams.push(channel);
+        }
+        if (channels && channels.length > 0) {
+          ftsSql += ` AND ci.channel IN (${channels.map(() => '?').join(',')})`;
+          ftsParams.push(...channels);
+        }
+        if (priorities && priorities.length > 0) {
+          ftsSql += ` AND ci.priority IN (${priorities.map(() => '?').join(',')})`;
+          ftsParams.push(...priorities);
+        }
+
+        try {
+          const countResult = this.db
+            .prepare(ftsSql.replace('SELECT ci.*', 'SELECT COUNT(*) as count'))
+            .get(...ftsParams) as any;
+          const totalCount = countResult?.count || 0;
+
+          ftsSql += ' ORDER BY bm25(context_items_fts)';
+          ftsSql = this.addPaginationToQuery(ftsSql, ftsParams, validLimit, validOffset);
+
+          const items = this.db.prepare(ftsSql).all(...ftsParams) as ContextItem[];
+          const totalPages = Math.ceil(totalCount / validLimit);
+          const currentPage = Math.floor(validOffset / validLimit) + 1;
+          return {
+            items,
+            totalCount,
+            pagination: {
+              currentPage,
+              totalPages,
+              totalItems: totalCount,
+              itemsPerPage: validLimit,
+              hasNextPage: currentPage < totalPages,
+              hasPreviousPage: currentPage > 1,
+              nextOffset: currentPage < totalPages ? validOffset + validLimit : null,
+              previousOffset: currentPage > 1 ? Math.max(0, validOffset - validLimit) : null,
+            },
+          };
+        } catch (_ftsErr) {
+          // FTS5 table not available; fall through to LIKE search
+        }
+      }
+    }
 
     // Build the base query for cross-session search
     let sql = `
