@@ -104,6 +104,7 @@ Tip: Initialize git with 'git init' to enable git tracking features.`;
       await git.init();
       await git.addConfig('user.name', 'Test User');
       await git.addConfig('user.email', 'test@example.com');
+      await git.addConfig('commit.gpgsign', 'false');
     });
 
     afterEach(() => {

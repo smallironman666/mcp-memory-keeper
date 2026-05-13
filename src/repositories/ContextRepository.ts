@@ -219,6 +219,7 @@ export class ContextRepository extends BaseRepository {
     keyPattern?: string;
     priorities?: string[];
     includeMetadata?: boolean;
+    matchMode?: 'and' | 'or';
   }): { items: ContextItem[]; totalCount: number } {
     const {
       query,
@@ -234,34 +235,44 @@ export class ContextRepository extends BaseRepository {
       createdBefore,
       keyPattern,
       priorities,
+      matchMode = 'and',
     } = options;
 
     // Build the base query with proper privacy filtering
     let sql = `
-      SELECT * FROM context_items 
+      SELECT * FROM context_items
       WHERE (is_private = 0 OR session_id = ?)
     `;
     const params: any[] = [sessionId];
 
-    // Add search query with searchIn support
+    // Add search query with searchIn support — split on whitespace for multi-word AND/OR
     if (query) {
-      const searchConditions: string[] = [];
+      const conjunction = matchMode === 'or' ? ' OR ' : ' AND ';
+      const terms = query
+        .trim()
+        .split(/\s+/)
+        .filter(t => t.length > 0);
+      const termClauses: string[] = [];
 
-      // Escape special characters for LIKE operator
-      const escapedQuery = query.replace(/[%_\\]/g, `${ContextRepository.SQLITE_ESCAPE_CHAR}$&`);
+      for (const term of terms) {
+        const escaped = term.replace(/[%_\\]/g, `${ContextRepository.SQLITE_ESCAPE_CHAR}$&`);
+        const fieldConds: string[] = [];
 
-      if (searchIn.includes('key')) {
-        searchConditions.push(`key LIKE ? ESCAPE '${ContextRepository.SQLITE_ESCAPE_CHAR}'`);
-        params.push(`%${escapedQuery}%`);
+        if (searchIn.includes('key')) {
+          fieldConds.push(`key LIKE ? ESCAPE '${ContextRepository.SQLITE_ESCAPE_CHAR}'`);
+          params.push(`%${escaped}%`);
+        }
+        if (searchIn.includes('value')) {
+          fieldConds.push(`value LIKE ? ESCAPE '${ContextRepository.SQLITE_ESCAPE_CHAR}'`);
+          params.push(`%${escaped}%`);
+        }
+        if (fieldConds.length > 0) {
+          termClauses.push(`(${fieldConds.join(' OR ')})`);
+        }
       }
 
-      if (searchIn.includes('value')) {
-        searchConditions.push(`value LIKE ? ESCAPE '${ContextRepository.SQLITE_ESCAPE_CHAR}'`);
-        params.push(`%${escapedQuery}%`);
-      }
-
-      if (searchConditions.length > 0) {
-        sql += ` AND (${searchConditions.join(' OR ')})`;
+      if (termClauses.length > 0) {
+        sql += ` AND (${termClauses.join(conjunction)})`;
       }
     }
 
@@ -496,6 +507,7 @@ export class ContextRepository extends BaseRepository {
     createdBefore?: string;
     keyPattern?: string;
     includeMetadata?: boolean;
+    matchMode?: 'and' | 'or';
   }): { items: ContextItem[]; totalCount: number; pagination: any } {
     const {
       query,
@@ -513,6 +525,7 @@ export class ContextRepository extends BaseRepository {
       createdAfter,
       createdBefore,
       keyPattern,
+      matchMode = 'and',
     } = options;
 
     // Validate pagination parameters
@@ -545,23 +558,34 @@ export class ContextRepository extends BaseRepository {
       params.push(...sessions);
     }
 
-    // Add search query with searchIn support
+    // Add search query with searchIn support — split on whitespace for multi-word AND/OR
     if (query) {
-      const searchConditions: string[] = [];
-      const escapedQuery = query.replace(/[%_\\]/g, `${ContextRepository.SQLITE_ESCAPE_CHAR}$&`);
+      const conjunction = matchMode === 'or' ? ' OR ' : ' AND ';
+      const terms = query
+        .trim()
+        .split(/\s+/)
+        .filter(t => t.length > 0);
+      const termClauses: string[] = [];
 
-      if (searchIn.includes('key')) {
-        searchConditions.push(`key LIKE ? ESCAPE '${ContextRepository.SQLITE_ESCAPE_CHAR}'`);
-        params.push(`%${escapedQuery}%`);
+      for (const term of terms) {
+        const escaped = term.replace(/[%_\\]/g, `${ContextRepository.SQLITE_ESCAPE_CHAR}$&`);
+        const fieldConds: string[] = [];
+
+        if (searchIn.includes('key')) {
+          fieldConds.push(`key LIKE ? ESCAPE '${ContextRepository.SQLITE_ESCAPE_CHAR}'`);
+          params.push(`%${escaped}%`);
+        }
+        if (searchIn.includes('value')) {
+          fieldConds.push(`value LIKE ? ESCAPE '${ContextRepository.SQLITE_ESCAPE_CHAR}'`);
+          params.push(`%${escaped}%`);
+        }
+        if (fieldConds.length > 0) {
+          termClauses.push(`(${fieldConds.join(' OR ')})`);
+        }
       }
 
-      if (searchIn.includes('value')) {
-        searchConditions.push(`value LIKE ? ESCAPE '${ContextRepository.SQLITE_ESCAPE_CHAR}'`);
-        params.push(`%${escapedQuery}%`);
-      }
-
-      if (searchConditions.length > 0) {
-        sql += ` AND (${searchConditions.join(' OR ')})`;
+      if (termClauses.length > 0) {
+        sql += ` AND (${termClauses.join(conjunction)})`;
       }
     }
 

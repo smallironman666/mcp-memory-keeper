@@ -1457,6 +1457,7 @@ Checkpoint: ${autoSave ? `git-commit-${new Date().toISOString()}` : 'None'}`,
         keyPattern,
         priorities,
         includeMetadata,
+        matchMode,
       } = args;
       const targetSessionId = specificSessionId || currentSessionId || ensureSession();
 
@@ -1476,6 +1477,7 @@ Checkpoint: ${autoSave ? `git-commit-${new Date().toISOString()}` : 'None'}`,
         keyPattern,
         priorities,
         includeMetadata,
+        matchMode,
       });
 
       if (result.items.length === 0) {
@@ -2887,6 +2889,7 @@ Event ID: ${id.substring(0, 8)}`,
         keyPattern,
         searchIn = ['key', 'value'],
         includeMetadata = false,
+        matchMode,
       } = args;
 
       // Enhanced pagination validation with proper error handling
@@ -2918,6 +2921,7 @@ Event ID: ${id.substring(0, 8)}`,
           createdBefore,
           keyPattern,
           includeMetadata,
+          matchMode,
         });
 
         // PAGINATION VALIDATION: Ensure pagination is working as expected
@@ -4161,6 +4165,13 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               type: 'boolean',
               description: 'Include timestamps and size info',
             },
+            matchMode: {
+              type: 'string',
+              enum: ['and', 'or'],
+              default: 'and',
+              description:
+                'Multi-word query mode. AND (default) requires all terms to match; OR returns results matching any term.',
+            },
           },
           required: ['query'],
         },
@@ -4286,6 +4297,13 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               type: 'boolean',
               description: 'Include timestamps and size info',
               default: false,
+            },
+            matchMode: {
+              type: 'string',
+              enum: ['and', 'or'],
+              default: 'and',
+              description:
+                'Multi-word query mode. AND (default) requires all terms to match; OR returns results matching any term.',
             },
           },
           required: ['query'],
