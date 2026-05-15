@@ -28,6 +28,7 @@ describe('Git Integration Tests', () => {
     await git.init();
     await git.addConfig('user.name', 'Test User');
     await git.addConfig('user.email', 'test@example.com');
+    await git.addConfig('commit.gpgsign', 'false');
 
     // Create initial commit
     fs.writeFileSync(path.join(tempRepoPath, 'README.md'), '# Test Repo');

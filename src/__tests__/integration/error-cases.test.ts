@@ -194,6 +194,11 @@ describe('Error Cases Integration Tests', () => {
     });
 
     it('should handle permission errors', () => {
+      // Skip when running as root — root bypasses all file permission checks
+      if (process.getuid && process.getuid() === 0) {
+        return;
+      }
+
       // This test is platform-specific and may need adjustment
       const restrictedPath = '/root/test.txt'; // Usually no write permission
 

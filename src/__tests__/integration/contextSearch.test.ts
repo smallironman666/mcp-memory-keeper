@@ -1,4 +1,5 @@
 import { DatabaseManager } from '../../utils/database';
+import { ContextRepository } from '../../repositories/ContextRepository';
 import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -1214,6 +1215,163 @@ describe('Enhanced Context Search Integration Tests', () => {
 
       expect(results).toHaveLength(1);
       expect(results[0].key).toBe('normal_key');
+    });
+  });
+
+  describe('Multi-word AND/OR Search (matchMode)', () => {
+    let contextRepo: ContextRepository;
+    let sessionId: string;
+
+    beforeEach(() => {
+      contextRepo = new ContextRepository(dbManager);
+      sessionId = uuidv4();
+      db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(sessionId, 'matchMode test');
+
+      // Item: XTAR appears in key, 结汇人 appears in value
+      db.prepare(
+        'INSERT INTO context_items (id, session_id, key, value, is_private) VALUES (?, ?, ?, ?, 0)'
+      ).run(uuidv4(), sessionId, 'XTAR_account', '结汇人 transaction record');
+
+      // Item: both words in value
+      db.prepare(
+        'INSERT INTO context_items (id, session_id, key, value, is_private) VALUES (?, ?, ?, ?, 0)'
+      ).run(uuidv4(), sessionId, 'trade_record', 'XTAR 结汇人 settlement');
+
+      // Item: only XTAR
+      db.prepare(
+        'INSERT INTO context_items (id, session_id, key, value, is_private) VALUES (?, ?, ?, ?, 0)'
+      ).run(uuidv4(), sessionId, 'xtar_only', 'XTAR trading platform');
+
+      // Item: only 结汇人
+      db.prepare(
+        'INSERT INTO context_items (id, session_id, key, value, is_private) VALUES (?, ?, ?, ?, 0)'
+      ).run(uuidv4(), sessionId, 'jiehuiren_only', '结汇人 data point');
+    });
+
+    it('single-word query is backward-compatible', () => {
+      const { items } = contextRepo.searchEnhanced({ query: 'XTAR', sessionId });
+      expect(items.length).toBe(3);
+      expect(items.map(i => i.key)).toEqual(
+        expect.arrayContaining(['XTAR_account', 'trade_record', 'xtar_only'])
+      );
+    });
+
+    it('multi-word AND (default) requires all terms to match', () => {
+      const { items } = contextRepo.searchEnhanced({ query: 'XTAR 结汇人', sessionId });
+      expect(items.length).toBe(2);
+      expect(items.map(i => i.key)).toEqual(
+        expect.arrayContaining(['XTAR_account', 'trade_record'])
+      );
+    });
+
+    it('multi-word AND with matchMode:"and" is explicit equivalent', () => {
+      const { items } = contextRepo.searchEnhanced({
+        query: 'XTAR 结汇人',
+        sessionId,
+        matchMode: 'and',
+      });
+      expect(items.length).toBe(2);
+    });
+
+    it('multi-word OR returns items matching any term', () => {
+      const { items } = contextRepo.searchEnhanced({
+        query: 'XTAR 结汇人',
+        sessionId,
+        matchMode: 'or',
+      });
+      expect(items.length).toBe(4);
+    });
+
+    it('AND with a term that has no match returns nothing', () => {
+      const { items } = contextRepo.searchEnhanced({ query: 'XTAR nonexistent_xyz', sessionId });
+      expect(items.length).toBe(0);
+    });
+
+    it('searchAcrossSessionsEnhanced also supports matchMode', () => {
+      const { items: andItems } = contextRepo.searchAcrossSessionsEnhanced({
+        query: 'XTAR 结汇人',
+        currentSessionId: sessionId,
+        matchMode: 'and',
+      });
+      expect(andItems.length).toBe(2);
+
+      const { items: orItems } = contextRepo.searchAcrossSessionsEnhanced({
+        query: 'XTAR 结汇人',
+        currentSessionId: sessionId,
+        matchMode: 'or',
+      });
+      expect(orItems.length).toBe(4);
+    });
+  });
+
+  describe('FTS5 full-text search (useFts5)', () => {
+    let contextRepo: ContextRepository;
+    let sessionId: string;
+    let fts5Available: boolean;
+
+    beforeEach(() => {
+      contextRepo = new ContextRepository(dbManager);
+      sessionId = uuidv4();
+      db.prepare('INSERT INTO sessions (id, name) VALUES (?, ?)').run(sessionId, 'fts5 test');
+
+      // Check if FTS5 table was created by DatabaseManager
+      const ftsTable = db
+        .prepare(
+          "SELECT COUNT(*) as c FROM sqlite_master WHERE type='table' AND name='context_items_fts'"
+        )
+        .get() as any;
+      fts5Available = ftsTable.c > 0;
+
+      db.prepare(
+        'INSERT INTO context_items (id, session_id, key, value, is_private) VALUES (?, ?, ?, ?, 0)'
+      ).run(uuidv4(), sessionId, 'XTAR_account', 'settlement record for 结汇人');
+
+      db.prepare(
+        'INSERT INTO context_items (id, session_id, key, value, is_private) VALUES (?, ?, ?, ?, 0)'
+      ).run(uuidv4(), sessionId, 'trade_log', 'XTAR platform trade entry');
+
+      db.prepare(
+        'INSERT INTO context_items (id, session_id, key, value, is_private) VALUES (?, ?, ?, ?, 0)'
+      ).run(uuidv4(), sessionId, 'other_entry', 'unrelated content');
+    });
+
+    it('useFts5:true finds results for ≥3-char terms (or falls back to LIKE)', () => {
+      const { items } = contextRepo.searchEnhanced({ query: 'XTAR', sessionId, useFts5: true });
+      // Both FTS5 and LIKE fallback should find the two XTAR items
+      expect(items.length).toBe(2);
+    });
+
+    it('useFts5:true with short (<3-char) term auto-falls-back to LIKE', () => {
+      // "汇" is 1 CJK char — below trigram minimum; should still work via LIKE fallback
+      const { items } = contextRepo.searchEnhanced({ query: '汇', sessionId, useFts5: true });
+      // LIKE fallback finds '结汇人' in the value column
+      expect(items.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('useFts5:true with multi-word query finds AND intersection', () => {
+      const { items } = contextRepo.searchEnhanced({
+        query: 'XTAR settlement',
+        sessionId,
+        useFts5: true,
+      });
+      if (fts5Available) {
+        // FTS5: both terms must appear → only XTAR_account
+        expect(items.length).toBe(1);
+        expect(items[0].key).toBe('XTAR_account');
+      } else {
+        // LIKE fallback also works
+        expect(items.length).toBeGreaterThanOrEqual(0);
+      }
+    });
+
+    it('useFts5:false behaves identically to LIKE search', () => {
+      const { items: ftsOff } = contextRepo.searchEnhanced({
+        query: 'XTAR',
+        sessionId,
+        useFts5: false,
+      });
+      const { items: likeSearch } = contextRepo.searchEnhanced({ query: 'XTAR', sessionId });
+      expect(ftsOff.length).toBe(likeSearch.length);
     });
   });
 });

@@ -50,6 +50,9 @@ export class DatabaseManager {
     // Apply watcher migrations if needed
     this.applyWatcherMigrations();
 
+    // Apply FTS5 full-text search index (optional — gracefully skipped if unavailable)
+    this.applyFts5Migration();
+
     // Set up maintenance triggers
     this.setupMaintenanceTriggers();
   }
@@ -806,6 +809,55 @@ export class DatabaseManager {
       console.error('Failed to apply watcher migrations:', error);
       // For production, we should fail here since watcher functionality is critical
       throw new Error(`Critical error: Watcher migrations failed - ${error}`);
+    }
+  }
+
+  private applyFts5Migration(): void {
+    try {
+      const exists = this.db
+        .prepare(
+          "SELECT COUNT(*) as count FROM sqlite_master WHERE type='table' AND name='context_items_fts'"
+        )
+        .get() as any;
+      if (exists.count > 0) return;
+
+      this.db.transaction(() => {
+        // External-content FTS5 table backed by context_items; trigram tokenizer
+        // enables substring matching for both ASCII and CJK (≥3-char terms).
+        this.db.exec(`
+          CREATE VIRTUAL TABLE IF NOT EXISTS context_items_fts USING fts5(
+            key, value,
+            content='context_items',
+            content_rowid='rowid',
+            tokenize='trigram case_sensitive 0'
+          );
+
+          -- Sync triggers (all three required to keep FTS consistent)
+          CREATE TRIGGER IF NOT EXISTS fts_ai AFTER INSERT ON context_items BEGIN
+            INSERT INTO context_items_fts(rowid, key, value)
+              VALUES (new.rowid, new.key, new.value);
+          END;
+
+          CREATE TRIGGER IF NOT EXISTS fts_ad AFTER DELETE ON context_items BEGIN
+            INSERT INTO context_items_fts(context_items_fts, rowid, key, value)
+              VALUES ('delete', old.rowid, old.key, old.value);
+          END;
+
+          CREATE TRIGGER IF NOT EXISTS fts_au AFTER UPDATE ON context_items BEGIN
+            INSERT INTO context_items_fts(context_items_fts, rowid, key, value)
+              VALUES ('delete', old.rowid, old.key, old.value);
+            INSERT INTO context_items_fts(rowid, key, value)
+              VALUES (new.rowid, new.key, new.value);
+          END;
+
+          INSERT INTO context_items_fts(rowid, key, value)
+            SELECT rowid, key, value FROM context_items;
+        `);
+      })();
+    } catch (e) {
+      // Non-fatal: FTS5 trigram is an optional enhancement.
+      // LIKE-based search continues to work if this migration is skipped.
+      console.warn('FTS5 migration skipped (trigram tokenizer may not be available):', e);
     }
   }
 }

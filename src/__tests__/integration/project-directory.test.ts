@@ -20,6 +20,7 @@ describe('Project Directory Feature Tests', () => {
     await git.init();
     await git.addConfig('user.name', 'Test User');
     await git.addConfig('user.email', 'test@example.com');
+    await git.addConfig('commit.gpgsign', 'false');
 
     // Create initial commit
     fs.writeFileSync(path.join(tempProjectPath, 'README.md'), '# Test Project');
@@ -256,6 +257,7 @@ describe('Project Directory Feature Tests', () => {
       // Configure git for this test to avoid CI failures
       await git.addConfig('user.name', 'Test User');
       await git.addConfig('user.email', 'test@example.com');
+      await git.addConfig('commit.gpgsign', 'false');
 
       try {
         fs.writeFileSync(path.join(pathWithSpaces, 'test.txt'), 'content');
