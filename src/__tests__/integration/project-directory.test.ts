@@ -20,6 +20,9 @@ describe('Project Directory Feature Tests', () => {
     await git.init();
     await git.addConfig('user.name', 'Test User');
     await git.addConfig('user.email', 'test@example.com');
+    // Use repo-local hooks directory to prevent global hooks from interfering
+    const localHooksDir = path.join(tempProjectPath, '.git', 'hooks');
+    await git.addConfig('core.hooksPath', localHooksDir);
     await git.addConfig('commit.gpgsign', 'false');
 
     // Create initial commit
@@ -257,6 +260,9 @@ describe('Project Directory Feature Tests', () => {
       // Configure git for this test to avoid CI failures
       await git.addConfig('user.name', 'Test User');
       await git.addConfig('user.email', 'test@example.com');
+      // Use repo-local hooks directory to prevent global hooks from interfering
+      const localHooksDir = path.join(pathWithSpaces, '.git', 'hooks');
+      await git.addConfig('core.hooksPath', localHooksDir);
       await git.addConfig('commit.gpgsign', 'false');
 
       try {
