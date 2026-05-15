@@ -36,11 +36,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/mkreyman/mcp-memory-keeper"
+    "url": "https://github.com/smallironman666/mcp-memory-keeper"
   },
-  "homepage": "https://github.com/mkreyman/mcp-memory-keeper#readme",
+  "homepage": "https://github.com/smallironman666/mcp-memory-keeper#readme",
   "bugs": {
-    "url": "https://github.com/mkreyman/mcp-memory-keeper/issues"
+    "url": "https://github.com/smallironman666/mcp-memory-keeper/issues"
   },
   "files": [
     "dist/**/*",
