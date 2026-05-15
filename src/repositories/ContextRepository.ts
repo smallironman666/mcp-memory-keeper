@@ -888,6 +888,7 @@ export class ContextRepository extends BaseRepository {
   // Enhanced query method with all new parameters
   queryEnhanced(options: {
     sessionId: string;
+    filterBySessionId?: string; // Optional: filter results to only this session
     key?: string;
     category?: string;
     channel?: string;
@@ -903,6 +904,7 @@ export class ContextRepository extends BaseRepository {
   }): { items: ContextItem[]; totalCount: number } {
     const {
       sessionId,
+      filterBySessionId,
       key,
       category,
       channel,
@@ -945,6 +947,12 @@ export class ContextRepository extends BaseRepository {
     const params: any[] = [sessionId];
 
     // Add filters
+    // Filter by specific session if requested
+    if (filterBySessionId) {
+      sql += ' AND session_id = ?';
+      params.push(filterBySessionId);
+    }
+
     if (key) {
       sql += ' AND key = ?';
       params.push(key);
