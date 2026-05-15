@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - 'v*'
+    branches:
+      - 'release/v*'
 
 jobs:
   publish:
@@ -19,9 +21,13 @@ jobs:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
 
-      - name: Sync version from tag
+      - name: Sync version from tag or branch
         run: |
-          VERSION="${GITHUB_REF#refs/tags/v}"
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          else
+            VERSION="${GITHUB_REF#refs/heads/release/v}"
+          fi
           npm version "$VERSION" --no-git-tag-version --allow-same-version
 
       - name: Install dependencies
