@@ -19,13 +19,13 @@ const dbPath =
     : path.join(os.homedir(), 'mcp-data', 'memory-keeper', 'context.db');
 
 console.log(`[reindex] DB path: ${dbPath}`);
-console.log('[reindex] Loading all-MiniLM-L6-v2 ONNX pipeline (first time ~500ms)...');
+console.log('[reindex] Loading multilingual-e5-small ONNX pipeline (first time downloads ~120MB)...');
 
 async function main() {
   // 动态 import（ESM 模块在 CJS 环境下用 import()）
   const { pipeline } = await import('@huggingface/transformers');
-  const extractor = await (pipeline as any)('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
-    quantized: true,
+  const extractor = await (pipeline as any)('feature-extraction', 'Xenova/multilingual-e5-small', {
+    dtype: 'q8',
   });
   console.log('[reindex] Pipeline ready.');
 
@@ -62,10 +62,10 @@ async function main() {
       }
     });
 
-    // 先异步生成嵌入（事务外）
+    // 先异步生成嵌入（事务外）。e5 文档侧必须加 "passage: " 前缀，与 VectorStore.createEmbedding('passage') 一致
     for (const item of batch) {
       const content = `${item.key}: ${item.value}`;
-      const output = await extractor(content, { pooling: 'mean', normalize: true });
+      const output = await extractor('passage: ' + content, { pooling: 'mean', normalize: true });
       const embedding = Array.from(output.data) as number[];
       const buffer = Buffer.from(new Float32Array(embedding).buffer);
       (item as any).__vecId = uuidv4();
@@ -79,7 +79,7 @@ async function main() {
     console.log(`[reindex] ${done}/${items.length} embedded...`);
   }
 
-  console.log(`[reindex] Done. ${done} embeddings rebuilt with all-MiniLM-L6-v2.`);
+  console.log(`[reindex] Done. ${done} embeddings rebuilt with multilingual-e5-small.`);
   db.close();
 }
 

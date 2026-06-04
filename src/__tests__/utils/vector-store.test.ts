@@ -70,7 +70,8 @@ describe('VectorStore', () => {
 
     it('should handle empty text', async () => {
       const embedding = await vectorStore.createEmbedding('');
-      expect(embedding.every((v: number) => v === 0)).toBe(true);
+      // e5 模型对查询/文档加 query:/passage: 前缀，空文本仍产生有效 384 维向量（前缀本身有语义）
+      expect(embedding.length).toBe(384);
     });
   });
 

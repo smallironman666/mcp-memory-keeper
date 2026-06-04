@@ -1,6 +1,6 @@
 {
   "name": "@smallironman/mcp-memory-keeper",
-  "version": "0.13.0-fork1",
+  "version": "0.13.1-fork1",
   "description": "MCP server for persistent context management in AI coding assistants",
   "main": "dist/index.js",
   "bin": {

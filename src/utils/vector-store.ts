@@ -22,8 +22,9 @@ let _pipeline: any = null;
 async function getEmbeddingPipeline(): Promise<any> {
   if (!_pipeline) {
     const { pipeline } = await import('@huggingface/transformers');
-    _pipeline = await (pipeline as any)('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
-      quantized: true, // 量化版 ~23MB，M1 Max ARM64 原生支持
+    // multilingual-e5-small：384 维多语言模型（含中文），专为检索训练，召回质量远优于纯英文 all-MiniLM
+    _pipeline = await (pipeline as any)('feature-extraction', 'Xenova/multilingual-e5-small', {
+      dtype: 'q8', // int8 量化（transformers.js v3 正确量化参数，非已废弃的 quantized），~120MB
     });
   }
   return _pipeline;
@@ -55,11 +56,13 @@ export class VectorStore {
     `);
   }
 
-  // 使用 @huggingface/transformers ONNX 真语义嵌入（all-MiniLM-L6-v2，量化版 23MB）
+  // 使用 multilingual-e5-small ONNX 真语义嵌入（384 维，多语言含中文）
+  // e5 系列要求查询加 "query: "、文档加 "passage: " 前缀，不加会明显掉点
   // 首次调用加载模型 ~500ms，之后常驻内存 <10ms/条
-  async createEmbedding(text: string): Promise<number[]> {
+  async createEmbedding(text: string, kind: 'query' | 'passage' = 'passage'): Promise<number[]> {
     const extractor = await getEmbeddingPipeline();
-    const output = await extractor(text, { pooling: 'mean', normalize: true });
+    const prefix = kind === 'query' ? 'query: ' : 'passage: ';
+    const output = await extractor(prefix + text, { pooling: 'mean', normalize: true });
     return Array.from(output.data) as number[];
   }
 
@@ -107,7 +110,7 @@ export class VectorStore {
     topK: number = 10,
     minSimilarity: number = 0.3
   ): Promise<SearchResult[]> {
-    const queryEmbedding = await this.createEmbedding(query);
+    const queryEmbedding = await this.createEmbedding(query, 'query');
 
     const rows = this.db
       .prepare('SELECT id, content_id, content, embedding, metadata FROM vector_embeddings')
@@ -146,7 +149,7 @@ export class VectorStore {
     topK: number = 10,
     minSimilarity: number = 0.1
   ): Promise<SearchResult[]> {
-    const queryEmbedding = await this.createEmbedding(query);
+    const queryEmbedding = await this.createEmbedding(query, 'query');
 
     const rows = this.db
       .prepare(
