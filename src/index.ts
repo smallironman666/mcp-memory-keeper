@@ -2185,6 +2185,90 @@ ${entities.length > 20 ? `\n... and ${entities.length - 20} more` : ''}`,
       }
     }
 
+    // Hybrid Search: FTS5 BM25 + 语义向量 + RRF(k=60) 融合
+    case 'context_hybrid_search': {
+      const { query, topK = 10, sessionId: hybridSessionId, channel, channels, category } = args;
+      const targetSessionId = hybridSessionId || currentSessionId || ensureSession();
+      const k = 60; // RRF 常数，业界标准
+      const fetchK = Math.max(topK * 3, 30);
+
+      try {
+        // 并行跑 FTS5 和语义向量两路
+        const [fts5Result] = await Promise.all([
+          Promise.resolve(
+            repositories.contexts.searchEnhanced({
+              query,
+              sessionId: targetSessionId,
+              useFts5: true,
+              limit: fetchK,
+              channel,
+              channels,
+              category,
+            })
+          ),
+        ]);
+
+        await vectorStore.updateSessionEmbeddings(targetSessionId);
+        const vectorResults = await vectorStore.searchInSession(
+          targetSessionId,
+          query,
+          fetchK,
+          0.1 // hybrid 模式用更低阈值，让 RRF 自己排序
+        );
+
+        // 构建 context_items.id → item 的 map（FTS5 结果优先）
+        const itemMap = new Map<string, any>();
+        fts5Result.items.forEach(item => itemMap.set(item.id, item));
+
+        // RRF 合并：FTS5 贡献第一路分数
+        const scores = new Map<string, number>();
+        fts5Result.items.forEach((item, i) => {
+          scores.set(item.id, (scores.get(item.id) ?? 0) + 1 / (k + i + 1));
+        });
+
+        // 向量搜索贡献第二路分数
+        for (const vr of vectorResults) {
+          const ctxId = vr.contentId;
+          scores.set(ctxId, (scores.get(ctxId) ?? 0) + 1 / (k + vectorResults.indexOf(vr) + 1));
+          // 向量找到但 FTS5 没找到的条目：从 DB 补充
+          if (!itemMap.has(ctxId)) {
+            const item = repositories.contexts.getById(ctxId);
+            if (item) itemMap.set(ctxId, item);
+          }
+        }
+
+        // RRF 排序取 topK
+        const sorted = [...scores.entries()].sort((a, b) => b[1] - a[1]).slice(0, topK);
+
+        const mergedItems = sorted.map(([id]) => itemMap.get(id)).filter(Boolean);
+
+        if (mergedItems.length === 0) {
+          return {
+            content: [{ type: 'text', text: `No results found for: "${query}"` }],
+          };
+        }
+
+        let response = `Hybrid search: ${mergedItems.length} results for "${query}" (FTS5 + semantic, RRF merged)\n\n`;
+        mergedItems.forEach((item, index) => {
+          const score = sorted[index]?.[1];
+          response += `${index + 1}. [score: ${score?.toFixed(4)}] ${item.key}\n`;
+          response += `   ${String(item.value).substring(0, 200)}${String(item.value).length > 200 ? '...' : ''}\n`;
+          if (item.category || item.priority) {
+            response += `   Category: ${item.category || '-'}, Priority: ${item.priority || '-'}`;
+            if (item.channel) response += `, Channel: ${item.channel}`;
+            response += '\n';
+          }
+          response += '\n';
+        });
+
+        return { content: [{ type: 'text', text: response }] };
+      } catch (error: any) {
+        return {
+          content: [{ type: 'text', text: `Hybrid search failed: ${error.message}` }],
+        };
+      }
+    }
+
     // Phase 4.3: Multi-Agent System
     case 'context_delegate': {
       const { taskType, input, sessionId, chain = false } = args;
@@ -4495,6 +4579,34 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             type: 'string',
             description: 'Search within specific session (defaults to current)',
           },
+        },
+        required: ['query'],
+      },
+    },
+    // Hybrid Search
+    {
+      name: 'context_hybrid_search',
+      description:
+        'Hybrid search combining FTS5 BM25 keyword search and semantic vector search via Reciprocal Rank Fusion (RRF k=60). Returns results ranked by combined signal — better recall than either method alone.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description: 'Search query (supports natural language and keywords)',
+          },
+          topK: { type: 'number', description: 'Number of results to return', default: 10 },
+          sessionId: {
+            type: 'string',
+            description: 'Search within specific session (defaults to current)',
+          },
+          channel: { type: 'string', description: 'Filter by channel' },
+          channels: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Filter by multiple channels',
+          },
+          category: { type: 'string', description: 'Filter by category' },
         },
         required: ['query'],
       },

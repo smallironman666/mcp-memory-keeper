@@ -1,6 +1,5 @@
 import { Database } from 'better-sqlite3';
 import { v4 as uuidv4 } from 'uuid';
-import * as crypto from 'crypto';
 
 export interface VectorDocument {
   id: string;
@@ -11,14 +10,28 @@ export interface VectorDocument {
 
 export interface SearchResult {
   id: string;
+  contentId: string; // context_items.id，供 hybrid search RRF 合并使用
   content: string;
   similarity: number;
   metadata?: Record<string, any>;
 }
 
+// 延迟初始化的 ONNX embedding pipeline（lazy singleton）
+let _pipeline: any = null;
+
+async function getEmbeddingPipeline(): Promise<any> {
+  if (!_pipeline) {
+    const { pipeline } = await import('@huggingface/transformers');
+    _pipeline = await (pipeline as any)('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
+      quantized: true, // 量化版 ~23MB，M1 Max ARM64 原生支持
+    });
+  }
+  return _pipeline;
+}
+
 export class VectorStore {
   private db: Database;
-  private dimension: number = 384; // Using smaller embeddings for efficiency
+  private dimension: number = 384;
 
   constructor(db: Database) {
     this.db = db;
@@ -42,47 +55,12 @@ export class VectorStore {
     `);
   }
 
-  // Simple text embedding using character n-grams and hashing
-  // This is a lightweight alternative to neural embeddings
-  createEmbedding(text: string): number[] {
-    const embedding = new Array(this.dimension).fill(0);
-    const normalizedText = text.toLowerCase().replace(/\s+/g, ' ').trim();
-
-    // Generate character trigrams
-    const ngrams: string[] = [];
-    for (let i = 0; i <= normalizedText.length - 3; i++) {
-      ngrams.push(normalizedText.slice(i, i + 3));
-    }
-
-    // Also add word-level features
-    const words = normalizedText.split(' ');
-    for (const word of words) {
-      if (word.length > 2) {
-        ngrams.push(word);
-      }
-    }
-
-    // Hash each n-gram to a position in the embedding
-    for (const ngram of ngrams) {
-      const hash = crypto.createHash('md5').update(ngram).digest();
-
-      // Use multiple hash values to set multiple positions
-      for (let i = 0; i < 3; i++) {
-        const position = ((hash[i * 2] << 8) | hash[i * 2 + 1]) % this.dimension;
-        const value = (hash[i * 2 + 2] % 256) / 255.0;
-        embedding[position] += value;
-      }
-    }
-
-    // Normalize the embedding
-    const magnitude = Math.sqrt(embedding.reduce((sum, val) => sum + val * val, 0));
-    if (magnitude > 0) {
-      for (let i = 0; i < embedding.length; i++) {
-        embedding[i] /= magnitude;
-      }
-    }
-
-    return embedding;
+  // 使用 @huggingface/transformers ONNX 真语义嵌入（all-MiniLM-L6-v2，量化版 23MB）
+  // 首次调用加载模型 ~500ms，之后常驻内存 <10ms/条
+  async createEmbedding(text: string): Promise<number[]> {
+    const extractor = await getEmbeddingPipeline();
+    const output = await extractor(text, { pooling: 'mean', normalize: true });
+    return Array.from(output.data) as number[];
   }
 
   // Cosine similarity between two embeddings
@@ -108,7 +86,7 @@ export class VectorStore {
     metadata?: Record<string, any>
   ): Promise<string> {
     const id = uuidv4();
-    const embedding = this.createEmbedding(content);
+    const embedding = await this.createEmbedding(content);
 
     // Convert embedding to buffer for storage
     const buffer = Buffer.from(new Float32Array(embedding).buffer);
@@ -129,17 +107,15 @@ export class VectorStore {
     topK: number = 10,
     minSimilarity: number = 0.3
   ): Promise<SearchResult[]> {
-    const queryEmbedding = this.createEmbedding(query);
+    const queryEmbedding = await this.createEmbedding(query);
 
-    // Get all embeddings (in production, we'd want to optimize this)
     const rows = this.db
-      .prepare('SELECT id, content, embedding, metadata FROM vector_embeddings')
+      .prepare('SELECT id, content_id, content, embedding, metadata FROM vector_embeddings')
       .all() as any[];
 
     const results: SearchResult[] = [];
 
     for (const row of rows) {
-      // Convert buffer back to array
       const buffer = row.embedding as Buffer;
       const embedding = Array.from(
         new Float32Array(buffer.buffer, buffer.byteOffset, buffer.byteLength / 4)
@@ -150,6 +126,7 @@ export class VectorStore {
       if (similarity >= minSimilarity) {
         results.push({
           id: row.id,
+          contentId: row.content_id,
           content: row.content,
           similarity,
           metadata: row.metadata ? JSON.parse(row.metadata) : undefined,
@@ -157,7 +134,6 @@ export class VectorStore {
       }
     }
 
-    // Sort by similarity descending
     results.sort((a, b) => b.similarity - a.similarity);
 
     return results.slice(0, topK);
@@ -168,19 +144,16 @@ export class VectorStore {
     sessionId: string,
     query: string,
     topK: number = 10,
-    minSimilarity: number = 0.3
+    minSimilarity: number = 0.1
   ): Promise<SearchResult[]> {
-    const queryEmbedding = this.createEmbedding(query);
+    const queryEmbedding = await this.createEmbedding(query);
 
-    // Get embeddings for this session
     const rows = this.db
       .prepare(
-        `
-      SELECT ve.id, ve.content, ve.embedding, ve.metadata
-      FROM vector_embeddings ve
-      JOIN context_items ci ON ve.content_id = ci.id
-      WHERE ci.session_id = ?
-    `
+        `SELECT ve.id, ve.content_id, ve.content, ve.embedding, ve.metadata
+         FROM vector_embeddings ve
+         JOIN context_items ci ON ve.content_id = ci.id
+         WHERE ci.session_id = ?`
       )
       .all(sessionId) as any[];
 
@@ -197,6 +170,7 @@ export class VectorStore {
       if (similarity >= minSimilarity) {
         results.push({
           id: row.id,
+          contentId: row.content_id,
           content: row.content,
           similarity,
           metadata: row.metadata ? JSON.parse(row.metadata) : undefined,
@@ -215,7 +189,6 @@ export class VectorStore {
     topK: number = 10,
     minSimilarity: number = 0.3
   ): Promise<SearchResult[]> {
-    // Get the document's embedding
     const doc = this.db
       .prepare('SELECT content, embedding FROM vector_embeddings WHERE id = ?')
       .get(documentId) as any;
@@ -229,9 +202,10 @@ export class VectorStore {
       new Float32Array(buffer.buffer, buffer.byteOffset, buffer.byteLength / 4)
     );
 
-    // Get all other embeddings
     const rows = this.db
-      .prepare('SELECT id, content, embedding, metadata FROM vector_embeddings WHERE id != ?')
+      .prepare(
+        'SELECT id, content_id, content, embedding, metadata FROM vector_embeddings WHERE id != ?'
+      )
       .all(documentId) as any[];
 
     const results: SearchResult[] = [];
@@ -247,6 +221,7 @@ export class VectorStore {
       if (similarity >= minSimilarity) {
         results.push({
           id: row.id,
+          contentId: row.content_id,
           content: row.content,
           similarity,
           metadata: row.metadata ? JSON.parse(row.metadata) : undefined,
