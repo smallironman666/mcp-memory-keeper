@@ -43,32 +43,34 @@ describe('VectorStore', () => {
   });
 
   describe('Embedding creation', () => {
-    it('should create consistent embeddings for the same text', () => {
+    it('should create consistent embeddings for the same text', async () => {
       const text = 'This is a test sentence for embedding';
-      const embedding1 = vectorStore.createEmbedding(text);
-      const embedding2 = vectorStore.createEmbedding(text);
+      const embedding1 = await vectorStore.createEmbedding(text);
+      const embedding2 = await vectorStore.createEmbedding(text);
 
       expect(embedding1).toEqual(embedding2);
       expect(embedding1.length).toBe(384); // Default dimension
     });
 
-    it('should create different embeddings for different text', () => {
-      const embedding1 = vectorStore.createEmbedding('First text');
-      const embedding2 = vectorStore.createEmbedding('Completely different text');
+    it('should create different embeddings for different text', async () => {
+      const embedding1 = await vectorStore.createEmbedding('First text');
+      const embedding2 = await vectorStore.createEmbedding('Completely different text');
 
       expect(embedding1).not.toEqual(embedding2);
     });
 
-    it('should normalize embeddings', () => {
-      const embedding = vectorStore.createEmbedding('Test text');
-      const magnitude = Math.sqrt(embedding.reduce((sum, val) => sum + val * val, 0));
+    it('should normalize embeddings', async () => {
+      const embedding = await vectorStore.createEmbedding('Test text');
+      const magnitude = Math.sqrt(
+        embedding.reduce((sum: number, val: number) => sum + val * val, 0)
+      );
 
       expect(magnitude).toBeCloseTo(1.0, 5);
     });
 
-    it('should handle empty text', () => {
-      const embedding = vectorStore.createEmbedding('');
-      expect(embedding.every(v => v === 0)).toBe(true);
+    it('should handle empty text', async () => {
+      const embedding = await vectorStore.createEmbedding('');
+      expect(embedding.every((v: number) => v === 0)).toBe(true);
     });
   });
 

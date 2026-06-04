@@ -381,8 +381,8 @@ describe('MCP Server E2E Tests', () => {
   describe('tool profile filtering', () => {
     it('default profile should expose all tools', async () => {
       const response = await sendRequest('tools/list');
-      // Default is "full" profile with 38 tools
-      expect(response.result.tools.length).toBe(38);
+      // Default is "full" profile with 39 tools
+      expect(response.result.tools.length).toBe(39);
     });
   });
 });

@@ -1,6 +1,6 @@
 {
   "name": "@smallironman/mcp-memory-keeper",
-  "version": "0.12.2",
+  "version": "0.13.0-fork1",
   "description": "MCP server for persistent context management in AI coding assistants",
   "main": "dist/index.js",
   "bin": {
@@ -22,6 +22,7 @@
     "check-all": "npm run build && npm run type-check && npm run lint && npm run format:check && npm test",
     "pre-commit": "npm run build && npm run type-check && npm run lint && npm run format:check && npm test",
     "check-migrations": "tsx scripts/check-migrations.ts",
+    "reindex-embeddings": "tsx scripts/reindex-embeddings.ts",
     "prepare": "husky",
     "prepublishOnly": "npm run build && npm run test"
   },
@@ -36,11 +37,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/mkreyman/mcp-memory-keeper"
+    "url": "https://github.com/smallironman666/mcp-memory-keeper"
   },
-  "homepage": "https://github.com/mkreyman/mcp-memory-keeper#readme",
+  "homepage": "https://github.com/smallironman666/mcp-memory-keeper#readme",
   "bugs": {
-    "url": "https://github.com/mkreyman/mcp-memory-keeper/issues"
+    "url": "https://github.com/smallironman666/mcp-memory-keeper/issues"
   },
   "files": [
     "dist/**/*",
@@ -57,6 +58,7 @@
     "access": "public"
   },
   "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
     "@modelcontextprotocol/sdk": "^1.12.3",
     "better-sqlite3": "^12.1.0",
     "simple-git": "^3.28.0",

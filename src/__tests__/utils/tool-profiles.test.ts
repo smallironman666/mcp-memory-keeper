@@ -12,8 +12,8 @@ import {
 
 describe('Tool Profiles', () => {
   describe('ALL_TOOL_NAMES', () => {
-    it('should contain exactly 38 tool names', () => {
-      expect(ALL_TOOL_NAMES).toHaveLength(38);
+    it('should contain exactly 39 tool names', () => {
+      expect(ALL_TOOL_NAMES).toHaveLength(39);
     });
 
     it('should have no duplicates', () => {
@@ -55,8 +55,8 @@ describe('Tool Profiles', () => {
       expect(DEFAULT_PROFILES.standard).toHaveLength(22);
     });
 
-    it('full should have all 38 tools', () => {
-      expect(DEFAULT_PROFILES.full).toHaveLength(38);
+    it('full should have all 39 tools', () => {
+      expect(DEFAULT_PROFILES.full).toHaveLength(39);
     });
 
     it('minimal should be a subset of standard', () => {
@@ -234,7 +234,7 @@ describe('Tool Profiles', () => {
       const configPath = path.join(tmpDir, 'nonexistent.json');
       const result = resolveActiveProfile(configPath);
       expect(result.profileName).toBe('full');
-      expect(result.tools.size).toBe(38);
+      expect(result.tools.size).toBe(39);
       expect(result.source).toBe('default');
       expect(result.warnings).toHaveLength(0);
     });
@@ -269,7 +269,7 @@ describe('Tool Profiles', () => {
       const configPath = path.join(tmpDir, 'nonexistent.json');
       const result = resolveActiveProfile(configPath);
       expect(result.profileName).toBe('full');
-      expect(result.tools.size).toBe(38);
+      expect(result.tools.size).toBe(39);
       expect(result.source).toBe('default');
       expect(result.warnings.length).toBeGreaterThan(0);
       expect(result.warnings[0]).toContain('Unknown TOOL_PROFILE');
@@ -302,7 +302,7 @@ describe('Tool Profiles', () => {
       process.env.TOOL_PROFILE = 'empty';
       const result = resolveActiveProfile(configPath);
       expect(result.profileName).toBe('full');
-      expect(result.tools.size).toBe(38);
+      expect(result.tools.size).toBe(39);
       expect(result.warnings.some(w => w.includes('no valid tools'))).toBe(true);
     });
 
@@ -345,7 +345,7 @@ describe('Tool Profiles', () => {
       const configPath = path.join(tmpDir, 'nonexistent.json');
       const result = resolveActiveProfile(configPath);
       expect(result.profileName).toBe('full');
-      expect(result.tools.size).toBe(38);
+      expect(result.tools.size).toBe(39);
       expect(result.source).toBe('default');
     });
 
@@ -357,7 +357,7 @@ describe('Tool Profiles', () => {
       const result = resolveActiveProfile(configPath);
       // 'broken' not in built-ins, so falls through to unknown profile fallback
       expect(result.profileName).toBe('full');
-      expect(result.tools.size).toBe(38);
+      expect(result.tools.size).toBe(39);
       expect(result.warnings.some(w => w.includes('not a valid array of strings'))).toBe(true);
       warnSpy.mockRestore();
     });
@@ -369,7 +369,7 @@ describe('Tool Profiles', () => {
       const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
       const result = resolveActiveProfile(configPath);
       expect(result.profileName).toBe('full');
-      expect(result.tools.size).toBe(38);
+      expect(result.tools.size).toBe(39);
       expect(result.warnings.some(w => w.includes('not a valid array of strings'))).toBe(true);
       warnSpy.mockRestore();
     });
@@ -381,7 +381,7 @@ describe('Tool Profiles', () => {
       const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
       const result = resolveActiveProfile(configPath);
       expect(result.profileName).toBe('full');
-      expect(result.tools.size).toBe(38);
+      expect(result.tools.size).toBe(39);
       expect(result.warnings.some(w => w.includes('not a valid array of strings'))).toBe(true);
       warnSpy.mockRestore();
     });

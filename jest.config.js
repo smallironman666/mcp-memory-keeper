@@ -15,6 +15,8 @@ module.exports = {
   coverageReporters: ['text', 'lcov', 'html'],
   moduleNameMapper: {
     '^(\\.{1,2}/.*)\\.js$': '$1',
+    // 测试环境把神经嵌入库替换为轻量 hash trigram mock（避免下载 23MB 模型）
+    '^@huggingface/transformers$': '<rootDir>/src/test-helpers/transformers-mock.ts',
   },
   extensionsToTreatAsEsm: ['.ts'],
   transform: {

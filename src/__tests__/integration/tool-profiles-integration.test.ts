@@ -135,7 +135,7 @@ describe('Tool Profile Integration Tests', () => {
       const result = resolveActiveProfile('/nonexistent/custom/path/config.json');
       // Missing file → no config → falls back to built-in 'full'
       expect(result.profileName).toBe('full');
-      expect(result.tools.size).toBe(38);
+      expect(result.tools.size).toBe(39);
     });
   });
 });

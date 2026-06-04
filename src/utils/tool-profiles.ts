@@ -31,6 +31,7 @@ export const ALL_TOOL_NAMES = [
   'context_search',
   'context_search_all',
   'context_semantic_search',
+  'context_hybrid_search',
   // Export/Import
   'context_export',
   'context_import',

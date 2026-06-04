@@ -1,6 +1,7 @@
 node_modules/
 dist/
 coverage/
+.idea/
 *.db
 *.db-journal
 *.db-wal
