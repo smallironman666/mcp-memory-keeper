@@ -3532,18 +3532,36 @@ Event ID: ${id.substring(0, 8)}`,
       db.prepare('BEGIN TRANSACTION').run();
 
       try {
+        // 排除 handler 校验失败的 item，避免坏数据流入 repository
+        // 同时记录从 valid 数组下标映射回 items 原始下标的关系
+        const invalidIdxSet = new Set(validationErrors.map(e => e.index));
+        const validPairs: { item: any; originalIdx: number }[] = [];
+        items.forEach((item, originalIdx) => {
+          if (!invalidIdxSet.has(originalIdx)) {
+            validPairs.push({ item, originalIdx });
+          }
+        });
+        const remapIdx = (validIdx: number) =>
+          validPairs[validIdx] !== undefined ? validPairs[validIdx].originalIdx : validIdx;
+
         // Use repository method
-        const batchResult = repositories.contexts.batchSave(sessionId, items, { updateExisting });
+        const batchResult = repositories.contexts.batchSave(
+          sessionId,
+          validPairs.map(p => p.item),
+          { updateExisting }
+        );
         totalSize = batchResult.totalSize;
 
-        // Merge validation errors with operation results
-        const allResults = batchResult.results.filter(r => r.success);
+        // Merge validation errors with operation results（repository index 映射回原始下标）
+        const allResults = batchResult.results
+          .filter(r => r.success)
+          .map(r => ({ ...r, index: remapIdx(r.index) }));
         const allErrors = [
           ...validationErrors,
           ...batchResult.results
             .filter(r => !r.success)
             .map(r => ({
-              index: r.index,
+              index: remapIdx(r.index),
               key: r.key,
               error: r.error,
             })),
@@ -3806,17 +3824,33 @@ Event ID: ${id.substring(0, 8)}`,
       db.prepare('BEGIN TRANSACTION').run();
 
       try {
-        // Use repository method
-        const updateResult = repositories.contexts.batchUpdate(targetSessionId, updates);
+        // 排除 handler 校验失败的 update，避免坏数据流入 repository
+        const invalidIdxSet = new Set(validationErrors.map(e => e.index));
+        const validPairs: { update: any; originalIdx: number }[] = [];
+        updates.forEach((update: any, originalIdx: number) => {
+          if (!invalidIdxSet.has(originalIdx)) {
+            validPairs.push({ update, originalIdx });
+          }
+        });
+        const remapIdx = (validIdx: number) =>
+          validPairs[validIdx] !== undefined ? validPairs[validIdx].originalIdx : validIdx;
 
-        // Merge validation errors with operation results
-        results = updateResult.results.filter(r => r.updated);
+        // Use repository method
+        const updateResult = repositories.contexts.batchUpdate(
+          targetSessionId,
+          validPairs.map(p => p.update)
+        );
+
+        // Merge validation errors with operation results（repository index 映射回原始下标）
+        results = updateResult.results
+          .filter(r => r.updated)
+          .map(r => ({ ...r, index: remapIdx(r.index) }));
         errors = [
           ...validationErrors,
           ...updateResult.results
             .filter(r => !r.updated)
             .map(r => ({
-              index: r.index,
+              index: remapIdx(r.index),
               key: r.key,
               error: r.error,
             })),
