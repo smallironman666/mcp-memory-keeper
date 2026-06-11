@@ -1513,6 +1513,7 @@ Checkpoint: ${autoSave ? `git-commit-${new Date().toISOString()}` : 'None'}`,
         includeMetadata,
         matchMode,
         useFts5,
+        previewLength = 1000,
       } = args;
       const targetSessionId = specificSessionId || currentSessionId || ensureSession();
 
@@ -1583,10 +1584,13 @@ Checkpoint: ${autoSave ? `git-commit-${new Date().toISOString()}` : 'None'}`,
 
       // Backward compatible format
       const resultText = result.items
-        .map(
-          (r: any) =>
-            `• [${r.priority}] ${r.key} (${r.category || 'none'})\n  ${r.value.substring(0, 100)}${r.value.length > 100 ? '...' : ''}`
-        )
+        .map((r: any) => {
+          const header = `• [${r.priority}] ${r.key} (${r.category || 'none'})`;
+          if (previewLength <= 0) return header;
+          const preview =
+            r.value.length > previewLength ? r.value.substring(0, previewLength) + '...' : r.value;
+          return `${header}\n  ${preview}`;
+        })
         .join('\n\n');
 
       return {
@@ -2109,7 +2113,7 @@ ${entities.length > 20 ? `\n... and ${entities.length - 20} more` : ''}`,
 
     // Phase 4.2: Semantic Search
     case 'context_semantic_search': {
-      const { query, topK = 10, minSimilarity = 0.3, sessionId } = args;
+      const { query, topK = 10, minSimilarity = 0.3, sessionId, previewLength = 1000 } = args;
       const targetSessionId = sessionId || ensureSession();
 
       try {
@@ -2148,9 +2152,19 @@ ${entities.length > 20 ? `\n... and ${entities.length - 20} more` : ''}`,
             const key = result.content.substring(0, colonIndex);
             const value = result.content.substring(colonIndex + 1).trim();
             response += `   Key: ${key}\n`;
-            response += `   Value: ${value.substring(0, 200)}${value.length > 200 ? '...' : ''}\n`;
-          } else {
-            response += `   ${result.content.substring(0, 200)}${result.content.length > 200 ? '...' : ''}\n`;
+            if (previewLength > 0) {
+              const preview =
+                value.length > previewLength
+                  ? value.substring(0, previewLength) + '...'
+                  : value;
+              response += `   Value: ${preview}\n`;
+            }
+          } else if (previewLength > 0) {
+            const preview =
+              result.content.length > previewLength
+                ? result.content.substring(0, previewLength) + '...'
+                : result.content;
+            response += `   ${preview}\n`;
           }
 
           if (result.metadata) {
@@ -2187,7 +2201,15 @@ ${entities.length > 20 ? `\n... and ${entities.length - 20} more` : ''}`,
 
     // Hybrid Search: FTS5 BM25 + 语义向量 + RRF(k=60) 融合
     case 'context_hybrid_search': {
-      const { query, topK = 10, sessionId: hybridSessionId, channel, channels, category } = args;
+      const {
+        query,
+        topK = 10,
+        sessionId: hybridSessionId,
+        channel,
+        channels,
+        category,
+        previewLength = 1000,
+      } = args;
       const targetSessionId = hybridSessionId || currentSessionId || ensureSession();
       const k = 60; // RRF 常数，业界标准
       const fetchK = Math.max(topK * 3, 30);
@@ -2252,7 +2274,12 @@ ${entities.length > 20 ? `\n... and ${entities.length - 20} more` : ''}`,
         mergedItems.forEach((item, index) => {
           const score = sorted[index]?.[1];
           response += `${index + 1}. [score: ${score?.toFixed(4)}] ${item.key}\n`;
-          response += `   ${String(item.value).substring(0, 200)}${String(item.value).length > 200 ? '...' : ''}\n`;
+          const valStr = String(item.value);
+          if (previewLength > 0) {
+            const preview =
+              valStr.length > previewLength ? valStr.substring(0, previewLength) + '...' : valStr;
+            response += `   ${preview}\n`;
+          }
           if (item.category || item.priority) {
             response += `   Category: ${item.category || '-'}, Priority: ${item.priority || '-'}`;
             if (item.channel) response += `, Channel: ${item.channel}`;
@@ -3031,6 +3058,7 @@ Event ID: ${id.substring(0, 8)}`,
         includeMetadata = false,
         matchMode,
         useFts5,
+        previewLength = 1000,
       } = args;
 
       // Enhanced pagination validation with proper error handling
@@ -3085,10 +3113,15 @@ Event ID: ${id.substring(0, 8)}`,
         }
 
         const resultsList = result.items
-          .map(
-            (item: any) =>
-              `• [${item.session_id.substring(0, 8)}] ${item.key}: ${item.value.substring(0, 100)}${item.value.length > 100 ? '...' : ''}`
-          )
+          .map((item: any) => {
+            const header = `• [${item.session_id.substring(0, 8)}] ${item.key}`;
+            if (previewLength <= 0) return header;
+            const preview =
+              item.value.length > previewLength
+                ? item.value.substring(0, previewLength) + '...'
+                : item.value;
+            return `${header}: ${preview}`;
+          })
           .join('\n');
 
         // Build pagination info
@@ -4317,6 +4350,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             description:
               'Use FTS5 full-text search with BM25 ranking. Best for large datasets and ASCII content. Terms < 3 characters automatically fall back to LIKE search.',
           },
+          previewLength: {
+            type: 'number',
+            description:
+              'Max chars of value to preview per result (default 1000). Set 0 to hide value entirely; set a large number like 99999 to show full value without truncation.',
+            default: 1000,
+          },
         },
         required: ['query'],
       },
@@ -4456,6 +4495,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             description:
               'Use FTS5 full-text search with BM25 ranking. Best for large datasets and ASCII content. Terms < 3 characters automatically fall back to LIKE search.',
           },
+          previewLength: {
+            type: 'number',
+            description:
+              'Max chars of value to preview per result (default 1000). Set 0 to hide value entirely; set a large number like 99999 to show full value without truncation.',
+            default: 1000,
+          },
         },
         required: ['query'],
       },
@@ -4579,6 +4624,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             type: 'string',
             description: 'Search within specific session (defaults to current)',
           },
+          previewLength: {
+            type: 'number',
+            description:
+              'Max chars of value to preview per result (default 1000). Set 0 to hide value entirely; set a large number like 99999 to show full value without truncation.',
+            default: 1000,
+          },
         },
         required: ['query'],
       },
@@ -4607,6 +4658,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             description: 'Filter by multiple channels',
           },
           category: { type: 'string', description: 'Filter by category' },
+          previewLength: {
+            type: 'number',
+            description:
+              'Max chars of value to preview per result (default 1000). Set 0 to hide value entirely; set a large number like 99999 to show full value without truncation.',
+            default: 1000,
+          },
         },
         required: ['query'],
       },
